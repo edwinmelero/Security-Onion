@@ -59,7 +59,157 @@ By right-clicking the value in the *Src IP* field and viewing the menu options y
 Now I right-clicked the value in the *ST* field. Selected **Update Event Status > Cat VI: Reconnaissance/Probes/Scans**.
 
 ![image](https://github.com/itzyezz/Security-Onion/assets/105263523/5b774b1e-4d9b-4bf0-9c1f-02ea9cbc5e3b)
+<br>
+<br>
+<br>
 
 
+# Analyze and Prioritize Events
+
+
+From *Alert* **3.31** on *Event Message* you can see this is the start of a separate packet capture, representing the use of a Trojan. Following the sequence of Alerts as the Tibs downloader Trojan connects to a website and downloads a suspicious file. 
+<br>
+<br>
+From selecting alert **3.35**. Note the higher packet count **(24)** as a large amount of data is downloaded. I right-clicked the value **3.35** and select **Bro** to analyze the traffic content shown in the new window.
+
+![image](https://github.com/itzyezz/Security-Onion/assets/105263523/bc0d9382-74b0-4b53-a24f-b0148cc17bc4)
+<br>
+<br>
+<br>
+
+Note that the content type is being served as text/html, but this is no web page. Observe the MZ magic number, marking the string as binary code for a Windows executable. You could copy this code to perform reverse engineering on the malware. You could also extract the file using NetworkMiner or Wireshark and run it in sandbox to observe its behavior.
+
+![image](https://github.com/itzyezz/Security-Onion/assets/105263523/a235abe7-c83c-44f2-965c-f0a7dd7d68f9)
+<br>
+<br>
+<br>
+
+Alerts **3.90** and **3.91** detect a different kind of threat, referencing a common vulnerabilities and exposures (CVE-2014-6271). This signature detects an attempt to exploit the Shellshock vulnerability to run arbitrary commands through the web server's shell.
+
+![image](https://github.com/itzyezz/Security-Onion/assets/105263523/ee0b6e1c-8c64-42de-bff7-e541d1acb26b)
+<br>
+<br>
+<br>
+The last set of events (starting from *Alert ID* **3.95**) shows another Trojan being downloaded over port 80, followed by suspicious outbound traffic over port 443.
+
+![image](https://github.com/itzyezz/Security-Onion/assets/105263523/386013c1-df6b-4df9-9abb-d4217755e0e7)
+<br>
+<br>
+<br> 
+
+Next, I right-clicked the alert value **3.148** and selected Wireshark.
+
+![image](https://github.com/itzyezz/Security-Onion/assets/105263523/8ec9d8fa-2e68-4b04-b05a-7e0b0f43ac53)
+<br>
+<br>
+<br>
+
+Analyzing the traffic with port 443 (HTTPS), we might expect a legitimate session to start with the SSL/TLS handshake and proceed with the exchange of encrypted packets. These packets use a plaintext HTTP POST and an encrypted message.
+
+![image](https://github.com/itzyezz/Security-Onion/assets/105263523/e03b9f70-4798-46f1-bb36-d5dd9446446b)
+<br>
+<br>
+<br>
+
+We would normally try to correlate this IP to known bad entries on a blacklist, but we do not have Internet access or a locally installed reputation database. Much of the value in commercial SIEM solutions lies in making this information immediately available and actionable.
+
+![image](https://github.com/itzyezz/Security-Onion/assets/105263523/4a60e801-b08d-4c09-a94f-2cedcc0a9d07)
+
+# Developing A Custom Rule
+
+In many environments, it will be necessary to modify rules or to write new custom rules. Some of the example alerts show that the contents of a rule can be complex and require a detailed understanding of the application configuration weakness, vulnerability, or exploit that you are trying to detect. Rules follow the same basic format, however. In this exercise, I created some basic rules to practice applying the basic syntax of these detection signatures.
+<br>
+<br>
+
+I opened up the terminal within Security Onion and then typed the command to open the file for storing customer/local rules. **sudo nano /etc/nsm/rules/local.rules**
+
+![image](https://github.com/itzyezz/Security-Onion/assets/105263523/dad9495b-d8fc-47ce-bea9-f383073bcf0d)
+<br>
+<br>
+<br>
+
+Each rule has a header plus a body, which is enclosed in brackets. The header includes the action, protocol, source host or network, source port, direction, target host or network, and target port. The body must include at least an identifier (sid:) and a message (msg:). A local rule should have an SID of 1000000 or greater. The parts of the body are delimited by semicolons. I saved the file after with CTRL+O then exited with CTRL+X
+
+![image](https://github.com/itzyezz/Security-Onion/assets/105263523/c34e43c6-e33a-42c7-9531-2596d2d0e635)
+
+<br>
+<br>
+<br>
+
+In the terminal I run the command **sudo rule-update**. This runs the "pulled pork" script to update the ruleset. (Pulled pork would normally check for updates over the Internet, but this configuration has online updating disabled.)
+
+![image](https://github.com/itzyezz/Security-Onion/assets/105263523/261f4f68-e262-4be8-ad97-5da8323af348)
+<br>
+<br>
+<br>
+
+Now I run the following command to check the newly loaded ruleset: **tail /etc/nsm/rules/downloaded.rules** 
+My custom rule is at the end of the file. 
+
+![image](https://github.com/itzyezz/Security-Onion/assets/105263523/21d29c30-1814-40c9-b659-0c9213a406e8)
+<br>
+<br>
+<br>
+
+I now log onto **LAMP** and run the following two commands to test the new rule: **pingping -c4 10.1.0.1** and **ping -c4 172.16.0.254**
+
+![image](https://github.com/itzyezz/Security-Onion/assets/105263523/d02a6e9c-3880-4557-a022-47973be6ce39)
+<br>
+<br>
+<br>
+
+Switching back over to the Sguil we can see the output that triggers two rulesets, my customer rule as seen below, and also a built-in one. Both rules record a count of 4 packets.
+<br>
+ALSO NOTE: IP 172.16.0.254 did not trigger the rule because 172.16.0.254 is the external interface of the RT1-LOCAL router (eth1). Only eth0 is configured as a port mirror. Security Onion only "sees" traffic passing over that eth0 interface, and the ping request for 172.16.0.254 never reaches it. When placing a sensor, you need one or more use cases for dealing with alerts that will be generated by traffic on that interface. Putting a sensor on the external interface might yield useful security information, but it would probably need a great deal of tuning to detect only high-priority threats.
+<br>
+Whenever you are troubleshooting sensor issues, it is a good idea to use tcpdump to verify whether packets are being received on a particular interface.
+
+[image](https://github.com/itzyezz/Security-Onion/assets/105263523/9db2fd7c-eb21-4206-a40a-9ab113cb523e)
+
+
+# Tune the Custom Rule
+
+As it stands, this rule is going to trigger continually and generate huge numbers of false positive alerts. I need to tune the rule first to restrict the networks that trigger it and then to trigger only if a threshold is passed.
+
+Back in the terminal I edit the line and add **alert icmp $EXTERNAL_NET any -> $HOME_NET any (msg:"External ICMP probe detected"; sid:1000001; rev:2;)** then save, exit, and update the rule as we did previously.
+
+![image](https://github.com/itzyezz/Security-Onion/assets/105263523/9959df65-cc98-468e-8578-b49edb425e8a)
+<br>
+<br>
+<br>
+
+Now back in LAMP we run the ping command again.
+
+![image](https://github.com/itzyezz/Security-Onion/assets/105263523/6e4f14bb-a1cc-4e31-af93-6f879fa439e1)
+<br>
+<br>
+<br>
+
+We can see in Squil that a new alert has been generated for **"External ICMP probe detected."**
+
+![image](https://github.com/itzyezz/Security-Onion/assets/105263523/094d533e-8254-4e24-8a9f-4b0bb866cef3)
+<br>
+<br>
+<br>
+
+I opened up Command Prompt on the administrator account and ran the pings to test the new rule. 
+
+![image](https://github.com/itzyezz/Security-Onion/assets/105263523/fbbffa37-4829-43c2-b8e1-a9ac0068024f)
+<br>
+<br>
+<br>
+
+New alerts were created.
+
+![image](https://github.com/itzyezz/Security-Onion/assets/105263523/18be4a78-fab2-4d33-b712-c1b6274a1e38)
+<br>
+<br>
+<br>
+
+I now edit the rule as follows: **alert icmp $EXTERNAL_NET any -> $HOME_NET any (itype:8; msg:"External ICMP probe detected"; detection_filter:track by_src,count 20,seconds 30; priority:4; classtype:icmp-event; sid:1000001; rev:3;)** 
+<br>
+The itype:8 parameter matches only ping echo requests. The detection filter sets a threshold for the alert; performing a basic connection test by pinging a server four times is not going to trigger the rule. I then save, exit, and update the rule. 
+
+![image](https://github.com/itzyezz/Security-Onion/assets/105263523/92f703e8-19cd-46f7-874c-e59890957fd8)
 
 
